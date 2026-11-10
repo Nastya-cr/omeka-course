@@ -1,0 +1,7 @@
+PASS  compose.yaml: 5 services, 2 networks, only proxy port exposed
+PASS  stack.yaml: 5 services, 2 networks, only proxy port exposed
+PASS  workflow: smoke, publish, deploy dependencies
+PASS  shell syntax: all six scripts
+PASS  backup: SQL fixture, archived file, both SHA-256 checks
+PASS  backup: failed dump leaves no new or partial snapshot
+Scope: static checks and shell tests with a stub. Docker execution pending.

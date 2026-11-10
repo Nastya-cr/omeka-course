@@ -1,0 +1,108 @@
+version: "3.8"
+services:
+  proxy:
+    image: nginx:1.28-alpine
+    ports:
+      - "8080:80"
+    configs:
+      - source: proxy_conf
+        target: /etc/nginx/conf.d/default.conf
+    networks: [front]
+    deploy:
+      placement:
+        constraints: [node.labels.library_edge == true]
+  omeka:
+    image: ${OMEKA_IMAGE:?Set OMEKA_IMAGE}
+    secrets: [omeka_db_password]
+    volumes:
+      - files:/var/www/html/files
+    networks: [front, back]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1/admin"]
+      interval: 10s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    deploy:
+      placement:
+        constraints: [node.labels.library_data == true]
+      update_config:
+        order: stop-first
+        failure_action: rollback
+        monitor: 90s
+      rollback_config:
+        order: stop-first
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: omeka
+      MARIADB_USER: omeka
+      MARIADB_PASSWORD_FILE: /run/secrets/omeka_db_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/omeka_root_password
+    secrets: [omeka_db_password, omeka_root_password]
+    volumes:
+      - database:/var/lib/mysql
+    networks: [back]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    deploy:
+      placement:
+        constraints: [node.labels.library_data == true]
+  monitor:
+    image: busybox:1.37
+    entrypoint: ["/bin/sh", "/usr/local/bin/monitor.sh"]
+    configs:
+      - source: monitor_script
+        target: /usr/local/bin/monitor.sh
+    networks: [front]
+    deploy:
+      placement:
+        constraints: [node.labels.library_edge == true]
+  backup:
+    image: mariadb:11.4
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup-loop.sh"]
+    secrets: [omeka_db_password]
+    configs:
+      - source: backup_script
+        target: /usr/local/bin/backup.sh
+        mode: 0555
+      - source: backup_loop
+        target: /usr/local/bin/backup-loop.sh
+    volumes:
+      - files:/omeka-files:ro
+      - backups:/backups
+    networks: [back]
+    deploy:
+      placement:
+        constraints: [node.labels.library_data == true]
+networks:
+  front:
+    driver: overlay
+  back:
+    driver: overlay
+    internal: true
+volumes:
+  database:
+  files:
+  backups:
+configs:
+  proxy_conf:
+    name: library_proxy_conf_${CONFIG_REV:-v1}
+    file: ./proxy/default.conf
+  monitor_script:
+    name: library_monitor_script_${CONFIG_REV:-v1}
+    file: ./scripts/monitor.sh
+  backup_script:
+    name: library_backup_script_${CONFIG_REV:-v1}
+    file: ./scripts/backup.sh
+  backup_loop:
+    name: library_backup_loop_${CONFIG_REV:-v1}
+    file: ./scripts/backup-loop.sh
+secrets:
+  omeka_db_password:
+    external: true
+  omeka_root_password:
+    external: true
